@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/rwcarlsen/goexif/exif"
 	"gopkg.in/h2non/filetype.v1"
@@ -161,24 +163,52 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
+
 	if !sfi.Mode().IsRegular() {
 		return fmt.Errorf("CopyFile: non-regular source file %s (%q)", sfi.Name(), sfi.Mode().String())
 	}
+
 	dfi, err := os.Stat(dst)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return err
 		}
 	} else {
-		if !(dfi.Mode().IsRegular()) {
+		if !dfi.Mode().IsRegular() {
 			return fmt.Errorf("CopyFile: non-regular destination file %s (%q)", dfi.Name(), dfi.Mode().String())
 		}
 		if os.SameFile(sfi, dfi) {
 			return err
 		}
+		if sfi.Name() == dfi.Name() {
+			fmt.Printf("%s (%d bytes) seems to be the same file as %s (%d bytes).\n", src, sfi.Size(), dst, dfi.Size())
+			if answer, _ := askForConfirmation("Do you want to overwrite the existing file?"); !answer {
+				return err
+			}
+		}
 	}
+
 	err = copyFileContents(src, dst)
 	return err
+}
+
+func askForConfirmation(s string) (bool, error) {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Printf("%s [y/N]: ", s)
+
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return false, err
+		}
+
+		response = strings.ToLower(strings.TrimSpace(response))
+
+		if response == "y" || response == "yes" {
+			return true, nil
+		}
+		return false, nil
+	}
 }
 
 func copyFileContents(src, dst string) error {
@@ -187,6 +217,7 @@ func copyFileContents(src, dst string) error {
 		return err
 	}
 	defer in.Close()
+
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
@@ -197,9 +228,12 @@ func copyFileContents(src, dst string) error {
 			err = cerr
 		}
 	}()
-	if _, err = io.Copy(out, in); err != nil {
+
+	_, err = io.Copy(out, in)
+	if err != nil {
 		return err
 	}
+
 	err = out.Sync()
 	return err
 }
